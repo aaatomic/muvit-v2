@@ -13,10 +13,24 @@ const PropertyImage3 = () => (
 const SCENE_COMPONENTS = [PropertyImage1, PropertyImage2, PropertyImage3];
 const PROPERTY_IMAGE_COUNT = 10;
 
+function publicAssetPath(path: string): string {
+  if (
+    path.startsWith("http://") ||
+    path.startsWith("https://") ||
+    path.startsWith("data:") ||
+    path.startsWith("blob:")
+  ) {
+    return path;
+  }
+
+  return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
+}
+
 function propertyImagePath(property: Pick<PropertyListing, "id" | "image">): string {
-  if (property.image) return property.image;
+  if (property.image) return publicAssetPath(property.image);
+
   const index = ((Math.abs(property.id) - 1) % PROPERTY_IMAGE_COUNT) + 1;
-  return `/properties/prop-${index}.png`;
+  return publicAssetPath(`properties/prop-${index}.png`);
 }
 
 function PropertyPhoto({ property }: { property: PropertyListing }) {
