@@ -13,23 +13,10 @@ const PropertyImage3 = () => (
 const SCENE_COMPONENTS = [PropertyImage1, PropertyImage2, PropertyImage3];
 const PROPERTY_IMAGE_COUNT = 10;
 
-function publicAssetPath(path: string): string {
-  if (
-    path.startsWith("http://") ||
-    path.startsWith("https://") ||
-    path.startsWith("data:") ||
-    path.startsWith("blob:")
-  ) {
-    return path;
-  }
-
-  return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
-}
-
 function propertyImagePath(property: Pick<PropertyListing, "id" | "image">): string {
-  if (property.image) return publicAssetPath(property.image);
+  if (property.image) return property.image;
   const index = ((Math.abs(property.id) - 1) % PROPERTY_IMAGE_COUNT) + 1;
-  return publicAssetPath(`properties/prop-${index}.png`);
+  return `/properties/prop-${index}.png`;
 }
 
 function PropertyPhoto({ property }: { property: PropertyListing }) {
@@ -1039,7 +1026,7 @@ function CalendarioScreen({ calendarDays, onToggleSlot, globalRequests }: any) {
 }
 
 // ─── MI PERFIL ─────────────────────────────────────────────
-function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenantProfile, onUpdateTenantProfile, ownerPropertyCount, ownerCredits, onOpenCredits, onResetDemo }: any) {
+function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenantProfile, onUpdateTenantProfile, ownerPropertyCount, onResetDemo }: any) {
   const handleRoleToggle = (newRole: string) => { setRole(newRole); setTab(newRole === 'inquilino' ? 'swipe' : 'propiedades'); };
   const set = (key: keyof TenantProfile, value: string | boolean) => onUpdateTenantProfile({ ...tenantProfile, [key]: value });
 
@@ -1099,20 +1086,7 @@ function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenan
             <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Plan Actual</span><span style={{ background:`rgba(232,87,42,0.1)`, color:C.accent, padding:"4px 10px", borderRadius:8, fontWeight:800, fontSize:12 }}>PREMIUM PRO</span></div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Propiedades Activas</span><span style={{ color:C.muted, fontWeight:700 }}>{ownerPropertyCount} Publicaciones</span></div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Matches este mes</span><span style={{ color:C.green, fontWeight:800 }}>+45 Leads</span></div>
-              <button
-                onClick={onOpenCredits}
-                style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 14px", background:`rgba(59,130,246,0.08)`, border:`1.5px solid rgba(59,130,246,0.22)`, borderRadius:12, color:C.text, cursor:"pointer", textAlign:"left" }}
-              >
-                <span style={{ display:"flex", flexDirection:"column", gap:3 }}>
-                  <span style={{ fontSize:14, fontWeight:800 }}>Créditos disponibles</span>
-                  <span style={{ fontSize:12, color:C.muted, fontWeight:600 }}>Tocar para comprar más</span>
-                </span>
-                <span style={{ display:"flex", alignItems:"center", gap:8, color:C.blue, fontWeight:900 }}>
-                  <span style={{ fontSize:18 }}>{ownerCredits}</span>
-                  <span style={{ fontSize:16 }}>›</span>
-                </span>
-              </button>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}><span style={{ color:C.text, fontWeight:600 }}>Matches este mes</span><span style={{ color:C.green, fontWeight:800 }}>+45 Leads</span></div>
             </div>
           </div>
         </>
@@ -1370,6 +1344,9 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
             </div>
           </div>
           <div style={{ position:"absolute", left:"50%", top:"50%", transform:"translate(-50%, -50%)", zIndex:1 }}>
+            {role === "dueño" && tab !== "creditos" && (
+              <button onClick={openCredits} style={{ background:`rgba(59,130,246,0.1)`, border:`1.5px solid rgba(59,130,246,0.25)`, borderRadius:20, padding:"4px 11px", color:C.blue, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>Créditos: {ownerCredits}</button>
+            )}
             {role === "dueño" && tab === "creditos" && (
               <button onClick={closeCredits} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:20, padding:"4px 11px", color:C.muted, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>← Volver</button>
             )}
@@ -1394,7 +1371,7 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
           {tab==="creditos" && role==="dueño" && <CreditsScreen credits={ownerCredits} onBack={closeCredits} />}
           {tab==="solicitudes" && role==="dueño" && <SolicitudesScreen globalRequests={globalRequests} onUpdateRequestStatus={updateRequestStatus} ownerCredits={ownerCredits} />}
           {tab==="calendario" && role==="dueño" && <CalendarioScreen calendarDays={calendarDays} onToggleSlot={toggleCalendarSlot} globalRequests={globalRequests} />}
-          {tab==="perfil" && <ProfileScreen role={role} setRole={setRole} setTab={setTab} isVerified={tenantVerified} setIsVerified={setTenantVerified} tenantProfile={tenantProfile} onUpdateTenantProfile={setTenantProfile} ownerPropertyCount={ownerListings.length} ownerCredits={ownerCredits} onOpenCredits={openCredits} onResetDemo={resetDemo} />}
+          {tab==="perfil" && <ProfileScreen role={role} setRole={setRole} setTab={setTab} isVerified={tenantVerified} setIsVerified={setTenantVerified} tenantProfile={tenantProfile} onUpdateTenantProfile={setTenantProfile} ownerPropertyCount={ownerListings.length} onResetDemo={resetDemo} />}
           {selectedProperty && <PropertyDetail property={selectedProperty} onClose={() => setSelectedProperty(null)} onSwipe={handleSwipeFromDetail} showActions={tab === "swipe"} />}
         </div>
 
