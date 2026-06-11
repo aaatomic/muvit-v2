@@ -13,21 +13,53 @@ const PropertyImage3 = () => (
 const SCENE_COMPONENTS = [PropertyImage1, PropertyImage2, PropertyImage3];
 const PROPERTY_IMAGE_COUNT = 10;
 
-function propertyImagePath(property: Pick<PropertyListing, "id" | "image">): string {
+function publicAssetPath(path: string): string {
+  if (
+    path.startsWith("http://") ||
+    path.startsWith("https://") ||
+    path.startsWith("data:") ||
+    path.startsWith("blob:")
+  ) {
+    return path;
+  }
+
+  return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
+}
+
+function propertyImageBasePath(property: Pick<PropertyListing, "id" | "image">): string {
   if (property.image) return property.image;
   const index = ((Math.abs(property.id) - 1) % PROPERTY_IMAGE_COUNT) + 1;
-  return `/properties/prop-${index}.png`;
+  return `properties/prop-${index}`;
+}
+
+function propertyImageCandidates(property: Pick<PropertyListing, "id" | "image">): string[] {
+  const basePath = propertyImageBasePath(property);
+
+  if (property.image) return [publicAssetPath(basePath)];
+
+  const index = ((Math.abs(property.id) - 1) % PROPERTY_IMAGE_COUNT) + 1;
+  const fileBases = [`properties/prop-${index}`, `properties/Prop-${index}`];
+  const extensions = ["png", "jpg", "jpeg", "webp", "PNG", "JPG", "JPEG", "WEBP"];
+
+  return fileBases.flatMap(fileBase => extensions.map(ext => publicAssetPath(`${fileBase}.${ext}`)));
 }
 
 function PropertyPhoto({ property }: { property: PropertyListing }) {
-  const [useFallback, setUseFallback] = useState(false);
+  const [imageIndex, setImageIndex] = useState(0);
   const Scene = SCENE_COMPONENTS[property.sceneIndex % SCENE_COMPONENTS.length];
-  if (useFallback) return <Scene />;
+  const candidates = propertyImageCandidates(property);
+
+  useEffect(() => {
+    setImageIndex(0);
+  }, [property.id, property.image]);
+
+  if (imageIndex >= candidates.length) return <Scene />;
+
   return (
     <img
-      src={propertyImagePath(property)}
+      src={candidates[imageIndex]}
       alt={property.title}
-      onError={() => setUseFallback(true)}
+      onError={() => setImageIndex(current => current + 1)}
       style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
     />
   );
@@ -88,6 +120,7 @@ function coordsForBarrio(barrio: string) {
 const INITIAL_OWNER_CREDITS = 99;
 const GLOBAL_REQUESTS_STORAGE_KEY = "muvit-global-requests";
 const SELECTED_CITY_STORAGE_KEY = "muvit-selected-city";
+const VISIT_CHATS_STORAGE_KEY = "muvit-visit-chats";
 
 function loadSelectedCity(): string {
   try {
@@ -103,6 +136,24 @@ function loadStoredRequests(): any[] {
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];
+  }
+}
+
+type VisitChatSender = "tenant" | "owner";
+type VisitChatMessage = {
+  id: number;
+  reqId: number;
+  from: VisitChatSender;
+  text: string;
+  createdAt: string;
+};
+
+function loadStoredVisitChats(): Record<string, VisitChatMessage[]> {
+  try {
+    const raw = localStorage.getItem(VISIT_CHATS_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
   }
 }
 
@@ -317,6 +368,73 @@ function TenantDetailModal({ profile, verified, onClose }: { profile: TenantProf
   );
 }
 
+
+function VisitChatModal({ request, role, messages, onSend, onClose }: { request: any; role: string; messages: VisitChatMessage[]; onSend: (requestId: number, from: VisitChatSender, text: string) => void; onClose: () => void }) {
+  const [text, setText] = useState("");
+  const sender: VisitChatSender = role === "dueño" ? "owner" : "tenant";
+  const senderLabel = sender === "owner" ? "Propietario" : "Inquilino";
+  const otherLabel = sender === "owner" ? request.tenantName || "Inquilino" : OWNER_NAME;
+  const defaultMessages: VisitChatMessage[] = messages.length > 0 ? messages : [{
+    id: 0,
+    reqId: request.id,
+    from: "owner",
+    text: `¡Hola! Esta visita está agendada para ${request.time ?? "el horario elegido"}. Pueden coordinar por acá.`,
+    createdAt: "",
+  }];
+  const quickMessages = sender === "tenant"
+    ? ["Hola, confirmo que voy a asistir.", "¿Me pasás indicaciones para llegar?", "¿Puede ser 10 minutos más tarde?"]
+    : ["Hola, te espero en el horario agendado.", "Te paso indicaciones por acá.", "Avisame si necesitás cambiar el horario."];
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const cleanText = text.trim();
+    if (!cleanText) return;
+    onSend(request.id, sender, cleanText);
+    setText("");
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:180, background:"rgba(30,20,10,0.48)", backdropFilter:"blur(7px)", display:"flex", alignItems:"flex-end", justifyContent:"center", colorScheme:"light" }} onClick={onClose}>
+      <div style={{ width:"100%", maxWidth:440, maxHeight:"82dvh", background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.border}`, boxShadow:`0 -18px 70px ${C.shadowM}`, display:"flex", flexDirection:"column", overflow:"hidden", paddingBottom:"env(safe-area-inset-bottom)" }} onClick={event => event.stopPropagation()}>
+        <div style={{ padding:"16px 18px 14px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", gap:12, flexShrink:0 }}>
+          <div style={{ minWidth:0 }}>
+            <div style={{ color:C.text, fontWeight:900, fontSize:17, lineHeight:1.2 }}>Chat de visita</div>
+            <div style={{ color:C.muted, fontSize:12, marginTop:3, lineHeight:1.35, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{request.propTitle} · {request.time ?? "Visita agendada"}</div>
+            <div style={{ color:C.green, fontSize:11, marginTop:5, fontWeight:700 }}>Hablando como {senderLabel} con {otherLabel}</div>
+          </div>
+          <button onClick={onClose} style={{ width:42, height:42, borderRadius:14, background:C.bg, border:`1px solid ${C.border}`, color:C.muted, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", flexShrink:0 }}><CloseIcon/></button>
+        </div>
+
+        <div style={{ flex:1, overflowY:"auto", padding:"16px 18px", display:"flex", flexDirection:"column", gap:10, background:C.bg, minHeight:220 }}>
+          {defaultMessages.map(message => {
+            const isMine = message.from === sender;
+            return (
+              <div key={message.id} style={{ display:"flex", justifyContent:isMine ? "flex-end" : "flex-start" }}>
+                <div style={{ maxWidth:"82%", background:isMine ? `linear-gradient(135deg,${C.accent},${C.accentL})` : C.surface, color:isMine ? "#fff" : C.text, border:isMine ? "none" : `1px solid ${C.border}`, borderRadius:isMine ? "18px 18px 5px 18px" : "18px 18px 18px 5px", padding:"10px 13px", boxShadow:`0 2px 8px ${C.shadow}` }}>
+                  <div style={{ fontSize:13, lineHeight:1.45, fontWeight:600 }}>{message.text}</div>
+                  {message.createdAt && <div style={{ fontSize:10, opacity:0.72, marginTop:5, textAlign:isMine ? "right" : "left" }}>{message.createdAt}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ padding:"12px 16px 16px", borderTop:`1px solid ${C.border}`, background:C.surface, flexShrink:0 }}>
+          <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:8, marginBottom:8 }}>
+            {quickMessages.map(quick => (
+              <button key={quick} onClick={() => onSend(request.id, sender, quick)} style={{ flexShrink:0, padding:"8px 10px", borderRadius:999, border:`1px solid ${C.border}`, background:C.bg, color:C.text, fontSize:11, fontWeight:700, cursor:"pointer" }}>{quick}</button>
+            ))}
+          </div>
+          <form onSubmit={handleSubmit} style={{ display:"flex", gap:8 }}>
+            <input value={text} onChange={event => setText(event.target.value)} placeholder="Escribí un mensaje..." style={{ flex:1, border:`1.5px solid ${C.border}`, background:C.bg, borderRadius:14, padding:"12px 13px", color:C.text, fontSize:14, fontWeight:600, outline:"none", minWidth:0 }} />
+            <button type="submit" style={{ width:48, borderRadius:14, border:"none", background:`linear-gradient(135deg,${C.accent},${C.accentL})`, color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", boxShadow:`0 4px 14px rgba(232,87,42,0.3)` }}><SendIcon/></button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ICONS ────────────────────────────────────────────────────────────────────
 const HeartIcon = ({ filled }: any) => <svg viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="2.2" style={{width:22,height:22}}><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>;
 const XCircle = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{width:22,height:22}}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>;
@@ -393,7 +511,8 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
         * { box-sizing:border-box; }
-        body { background:#EDE9E3; font-family: 'Montserrat', sans-serif; }
+        html, body, #root { min-height:100%; }
+        body { background:#EDE9E3; font-family: 'Montserrat', sans-serif; margin:0; overscroll-behavior:none; }
         button { font-family:inherit; }
         input { font-family:inherit; }
       `}</style>
@@ -484,7 +603,7 @@ function SwipeCard({ property, onSwipe, onOpen, isTop, index, isBoosted }: any) 
 
   return (
     <>
-      <div onMouseDown={isTop ? (e) => { e.preventDefault(); handleStart(e.clientX, e.clientY); } : undefined} onMouseMove={isTop ? (e) => handleMove(e.clientX, e.clientY) : undefined} onMouseUp={isTop ? handleEnd : undefined} onMouseLeave={isTop && dragging ? handleEnd : undefined} onTouchStart={isTop ? (e) => { const t = e.touches[0]; handleStart(t.clientX, t.clientY); } : undefined} onTouchMove={isTop ? (e) => { const t = e.touches[0]; handleMove(t.clientX, t.clientY); } : undefined} onTouchEnd={isTop ? handleEnd : undefined} style={{ position: "absolute", width: "100%", cursor: isTop ? (dragging ? "grabbing" : "grab") : "default", transform: `translateX(${offset.x}px) translateY(${ty}px) rotate(${rot}deg) scale(${scale})`, transition: dragging ? "none" : "transform 0.38s cubic-bezier(0.34,1.56,0.64,1)", zIndex: 10 - index, userSelect: "none", touchAction: "none" }}>
+      <div onMouseDown={isTop ? (e) => { e.preventDefault(); handleStart(e.clientX, e.clientY); } : undefined} onMouseMove={isTop ? (e) => handleMove(e.clientX, e.clientY) : undefined} onMouseUp={isTop ? handleEnd : undefined} onMouseLeave={isTop && dragging ? handleEnd : undefined} onTouchStart={isTop ? (e) => { const t = e.touches[0]; handleStart(t.clientX, t.clientY); } : undefined} onTouchMove={isTop ? (e) => { const t = e.touches[0]; handleMove(t.clientX, t.clientY); } : undefined} onTouchEnd={isTop ? handleEnd : undefined} style={{ position: "absolute", top: 0, left: 0, width: "100%", cursor: isTop ? (dragging ? "grabbing" : "grab") : "default", transform: `translateX(${offset.x}px) translateY(${ty}px) rotate(${rot}deg) scale(${scale})`, transition: dragging ? "none" : "transform 0.38s cubic-bezier(0.34,1.56,0.64,1)", zIndex: 10 - index, userSelect: "none", touchAction: "none" }}>
         <div style={{ borderRadius: 24, overflow: "hidden", background: C.card, boxShadow: isTop ? `0 8px 40px ${C.shadowM}, 0 2px 8px ${C.shadow}` : `0 4px 20px ${C.shadow}`, border: `1px solid ${C.border}` }}>
           <div style={{ position: "relative", height: 300, overflow: "hidden" }}>
             <PropertyPhoto property={property} />
@@ -507,7 +626,7 @@ function SwipeCard({ property, onSwipe, onOpen, isTop, index, isBoosted }: any) 
         </div>
       </div>
       {showAI && (
-        <div style={{ position:"fixed", inset:0, zIndex:100, background:"rgba(30,20,10,0.45)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setShowAI(false)}>
+        <div style={{ position:"fixed", inset:0, zIndex:700, background:"rgba(30,20,10,0.45)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setShowAI(false)}>
           <div style={{ width:"100%", maxWidth:440, background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.border}`, paddingBottom:24, maxHeight:"72vh", display:"flex", flexDirection:"column", boxShadow:`0 -16px 60px ${C.shadowM}` }} onClick={e => e.stopPropagation()}>
             <div style={{ padding:"14px 18px 12px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
               <div style={{ display:"flex", alignItems:"center", gap:10 }}><div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg, ${C.accent}, ${C.accentL})`, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff" }}><BotIcon/></div><div><div style={{ color:C.text, fontWeight:800, fontSize:15 }}>Asistente Muvit</div><div style={{ color:C.green, fontSize:11, display:"flex", alignItems:"center", gap:4, fontWeight:600 }}><span style={{ width:6, height:6, borderRadius:"50%", background:C.green, display:"inline-block" }}/>En línea</div></div></div>
@@ -594,14 +713,14 @@ function SwipeScreen({ listings, boostedPropertyIds, onOpen, externalSwipe, onEx
 
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", padding:16, background:C.bg }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:14, position:"relative", zIndex:40, flexShrink:0, background:C.bg }}>
         <div style={{ display:"flex", gap:8 }}>
           <Pill color={C.accent} bg="rgba(232,87,42,0.08)" border="rgba(232,87,42,0.2)">{listings.length - cards.length} vistos</Pill>
           <Pill color={C.green} bg="rgba(46,204,138,0.08)" border="rgba(46,204,138,0.25)">❤️ {matchesCount} solicitudes</Pill>
         </div>
         <span style={{ color:C.faint, fontSize:13, fontWeight:600 }}>{cards.length} restantes</span>
       </div>
-      <div style={{ position:"relative", flex:1, display:"flex", alignItems:"center" }}>
+      <div style={{ position:"relative", flex:1, display:"flex", alignItems:"flex-start", zIndex:45 }}>
         {cards.slice(0, 3).map((p: PropertyListing, i: number) => <SwipeCard key={p.id} property={p} isBoosted={boostedPropertyIds?.includes(p.id)} onSwipe={handleSwipe} onOpen={onOpen} isTop={i===0} index={i}/>)}
       </div>
       <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:18, padding:"20px 0 6px", position:"relative", zIndex:20 }}>
@@ -614,7 +733,7 @@ function SwipeScreen({ listings, boostedPropertyIds, onOpen, externalSwipe, onEx
 }
 
 // ─── VISITAS SCREEN (Inquilino) ──────────────────────────────
-function VisitasScreen({ globalRequests, onScheduleRequest, availableSlots, listings, onOpenProperty }: any) {
+function VisitasScreen({ globalRequests, onScheduleRequest, availableSlots, listings, onOpenProperty, onOpenChat }: any) {
   const [scheduleModal, setScheduleModal] = useState<any>(null);
   const slots = availableSlots.length > 0 ? availableSlots : getAvailableSlotLabels(INITIAL_CALENDAR_DAYS);
   const [selectedSlot, setSelectedSlot] = useState(slots[0] || "");
@@ -679,7 +798,7 @@ function VisitasScreen({ globalRequests, onScheduleRequest, availableSlots, list
                 )
               )}
               {req.status === 'scheduled' && (
-                <button style={{ width:"100%", marginTop:4, padding:"10px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, fontWeight:700, color:C.text, cursor:"pointer" }}>Abrir Chat con Dueño</button>
+                <button onClick={() => onOpenChat(req)} style={{ width:"100%", marginTop:4, padding:"10px", background:C.bg, border:`1px solid ${C.border}`, borderRadius:8, fontWeight:700, color:C.text, cursor:"pointer" }}>Abrir chat con dueño</button>
               )}
             </div>
           </div>
@@ -688,7 +807,7 @@ function VisitasScreen({ globalRequests, onScheduleRequest, availableSlots, list
       </div>
 
       {scheduleModal && (
-        <div style={{ position:"fixed", inset:0, zIndex:100, background:"rgba(30,20,10,0.45)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setScheduleModal(null)}>
+        <div style={{ position:"fixed", inset:0, zIndex:700, background:"rgba(30,20,10,0.45)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setScheduleModal(null)}>
           <div style={{ width:"100%", maxWidth:440, background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.border}`, padding:"24px", boxShadow:`0 -16px 60px ${C.shadowM}` }} onClick={e => e.stopPropagation()}>
             <div style={{ textAlign:"center", marginBottom:16 }}>
               <h3 style={{ margin:0, fontSize:18, color:C.text }}>Agendar visita</h3>
@@ -768,7 +887,7 @@ function OwnerPropertiesScreen({ properties, onAddProperty, onUpdateProperty, ci
   };
 
   return (
-    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", background:C.bg }}>
+    <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", minHeight:0, background:C.bg }}>
       <div style={{ flex:1, overflowY:"auto", padding:20, paddingBottom:100 }}>
       <h1 style={{ color:C.text, fontSize:22, fontWeight:800, marginBottom:4 }}>Mis Propiedades</h1>
       <p style={{ color:C.muted, fontSize:14, marginBottom:16 }}>Publicaciones de <strong style={{ color:C.text }}>{OWNER_NAME}</strong> en <strong style={{ color:C.text }}>{CITIES.find(c => c.id === cityId)?.name ?? "tu ciudad"}</strong></p>
@@ -893,7 +1012,7 @@ function sortSuperlikesFirst<T extends { isSuperlike?: boolean }>(items: T[]): T
   return [...items].sort((a, b) => Number(!!b.isSuperlike) - Number(!!a.isSuperlike));
 }
 
-function SolicitudesScreen({ globalRequests, onUpdateRequestStatus, ownerCredits }: any) {
+function SolicitudesScreen({ globalRequests, onUpdateRequestStatus, ownerCredits, onOpenChat }: any) {
   const [viewTenantReq, setViewTenantReq] = useState<any>(null);
   const pendingSuperlikes = globalRequests.filter((r: any) => r.status === "pending" && r.isSuperlike);
   const pending = globalRequests.filter((r: any) => r.status === "pending" && !r.isSuperlike);
@@ -930,7 +1049,7 @@ function SolicitudesScreen({ globalRequests, onUpdateRequestStatus, ownerCredits
           <CalendarIcon/> Visita: {req.time}
         </div>
       )}
-      <div style={{ background:C.bg, padding:"10px 12px", borderRadius:8, marginBottom: showActions ? 14 : 0, display:"flex", justifyContent:"space-between", fontSize:13 }}>
+      <div style={{ background:C.bg, padding:"10px 12px", borderRadius:8, marginBottom: showActions || req.status === "scheduled" ? 14 : 0, display:"flex", justifyContent:"space-between", fontSize:13 }}>
         <div><span style={{ color:C.muted }}>Ingresos:</span> <strong style={{ color:C.text }}>{req.tenantIncome}</strong></div>
         <div><strong style={{ color:C.text }}>{req.tenantPets}</strong></div>
       </div>
@@ -941,6 +1060,9 @@ function SolicitudesScreen({ globalRequests, onUpdateRequestStatus, ownerCredits
         </div>
       )}
       {req.status === "approved" && !req.time && <p style={{ margin:0, fontSize:12, color:C.muted }}>Esperando que el inquilino elija un horario.</p>}
+      {req.status === "scheduled" && (
+        <button onClick={() => onOpenChat(req)} style={{ width:"100%", padding:"10px", borderRadius:9, border:`1px solid ${C.border}`, background:C.bg, color:C.text, fontWeight:800, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:7 }}><SendIcon/> Abrir chat con inquilino</button>
+      )}
     </div>
   );
 
@@ -967,7 +1089,7 @@ function SolicitudesScreen({ globalRequests, onUpdateRequestStatus, ownerCredits
 }
 
 // ─── CALENDARIO (Dueño) ───────────────────────────────────────
-function CalendarioScreen({ calendarDays, onToggleSlot, globalRequests }: any) {
+function CalendarioScreen({ calendarDays, onToggleSlot, globalRequests, onOpenChat }: any) {
   const [selectedDayKey, setSelectedDayKey] = useState(calendarDays[0]?.dateKey || "");
 
   const selectedDay = calendarDays.find((d: CalendarDay) => d.dateKey === selectedDayKey) || calendarDays[0];
@@ -1015,6 +1137,7 @@ function CalendarioScreen({ calendarDays, onToggleSlot, globalRequests }: any) {
                   <div style={{ fontWeight:800, color:C.text, fontSize:15 }}>{req.tenantName}</div>
                   <div style={{ fontSize:13, color:C.muted, marginTop:4 }}>{req.propTitle}</div>
                   <div style={{ fontSize:13, color:C.green, fontWeight:700, marginTop:6 }}>🕐 {req.time}</div>
+                  <button onClick={() => onOpenChat(req)} style={{ width:"100%", marginTop:10, padding:"9px", borderRadius:9, border:`1px solid ${C.border}`, background:C.bg, color:C.text, fontWeight:800, cursor:"pointer" }}>Abrir chat</button>
                 </div>
               ))}
             </div>
@@ -1026,7 +1149,7 @@ function CalendarioScreen({ calendarDays, onToggleSlot, globalRequests }: any) {
 }
 
 // ─── MI PERFIL ─────────────────────────────────────────────
-function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenantProfile, onUpdateTenantProfile, ownerPropertyCount, onResetDemo }: any) {
+function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenantProfile, onUpdateTenantProfile, ownerPropertyCount, ownerCredits, onOpenCredits, onResetDemo }: any) {
   const handleRoleToggle = (newRole: string) => { setRole(newRole); setTab(newRole === 'inquilino' ? 'swipe' : 'propiedades'); };
   const set = (key: keyof TenantProfile, value: string | boolean) => onUpdateTenantProfile({ ...tenantProfile, [key]: value });
 
@@ -1086,7 +1209,20 @@ function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenan
             <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Plan Actual</span><span style={{ background:`rgba(232,87,42,0.1)`, color:C.accent, padding:"4px 10px", borderRadius:8, fontWeight:800, fontSize:12 }}>PREMIUM PRO</span></div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Propiedades Activas</span><span style={{ color:C.muted, fontWeight:700 }}>{ownerPropertyCount} Publicaciones</span></div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}><span style={{ color:C.text, fontWeight:600 }}>Matches este mes</span><span style={{ color:C.green, fontWeight:800 }}>+45 Leads</span></div>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Matches este mes</span><span style={{ color:C.green, fontWeight:800 }}>+45 Leads</span></div>
+              <button
+                onClick={onOpenCredits}
+                style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 14px", background:`rgba(59,130,246,0.08)`, border:`1.5px solid rgba(59,130,246,0.22)`, borderRadius:12, color:C.text, cursor:"pointer", textAlign:"left" }}
+              >
+                <span style={{ display:"flex", flexDirection:"column", gap:3 }}>
+                  <span style={{ fontSize:14, fontWeight:800 }}>Créditos disponibles</span>
+                  <span style={{ fontSize:12, color:C.muted, fontWeight:600 }}>Tocar para comprar más</span>
+                </span>
+                <span style={{ display:"flex", alignItems:"center", gap:8, color:C.blue, fontWeight:900 }}>
+                  <span style={{ fontSize:18 }}>{ownerCredits}</span>
+                  <span style={{ fontSize:16 }}>›</span>
+                </span>
+              </button>
             </div>
           </div>
         </>
@@ -1125,7 +1261,7 @@ function PropertyDetail({ property, onClose, onSwipe, showActions = true }: any)
   const AMENITY_ICONS: Record<string, string> = { "Wi-Fi incluido":"📶","Wi-Fi":"📶","Aire acondicionado":"❄️","Lavarropas":"🫧","Cocina equipada":"🍳","Cocina nueva":"🍳","Seguridad 24hs":"🔒","Baulera":"📦","Piscina":"🏊","Gimnasio":"💪","SUM":"🎉","Cochera doble":"🚗","Smart home":"🏠","Amoblado completo":"🛋️","Patio compartido":"🌿","Calefacción central":"🔥","Bicicleta incluida":"🚲","Bicicleta parking":"🚲","Balcón":"🌆","A estrenar":"✨","Jardín 60m²":"🌳","Parrilla":"🥩","Garage doble":"🚙","Quincho":"🏡","Alarma":"🚨","Aire central":"❄️" };
 
   return (
-    <div style={{ position:"absolute", inset:0, zIndex:50, transform: visible ? "translateX(0)" : "translateX(100%)", transition: "transform 0.32s cubic-bezier(0.4,0,0.2,1)", background: C.bg, display:"flex", flexDirection:"column", overflow:"hidden" }}>
+    <div style={{ position:"absolute", inset:0, zIndex:90, transform: visible ? "translateX(0)" : "translateX(100%)", transition: "transform 0.32s cubic-bezier(0.4,0,0.2,1)", background: C.bg, display:"flex", flexDirection:"column", overflow:"hidden" }}>
       <div style={{ display:"flex", alignItems:"center", gap:12, padding:"14px 16px 12px", background:C.surface, borderBottom:`1px solid ${C.border}`, flexShrink:0 }}>
         <button onClick={close} style={{ width:36, height:36, borderRadius:12, background:C.bg, border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", cursor:"pointer", color:C.text, flexShrink:0 }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{width:18,height:18}}><polyline points="15 18 9 12 15 6"/></svg></button>
         <div style={{ flex:1 }}><div style={{ color:C.text, fontWeight:800, fontSize:16, lineHeight:1.2 }}>{property.title}</div><div style={{ color:C.muted, fontSize:12, display:"flex", alignItems:"center", gap:3, marginTop:2 }}><PinIcon/>{property.location}</div></div>
@@ -1152,7 +1288,7 @@ function PropertyDetail({ property, onClose, onSwipe, showActions = true }: any)
       )}
 
       {showAI && (
-        <div style={{ position:"fixed", inset:0, zIndex:100, background:"rgba(30,20,10,0.45)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setShowAI(false)}>
+        <div style={{ position:"fixed", inset:0, zIndex:700, background:"rgba(30,20,10,0.45)", backdropFilter:"blur(6px)", display:"flex", alignItems:"flex-end", justifyContent:"center" }} onClick={() => setShowAI(false)}>
           <div style={{ width:"100%", maxWidth:440, background:C.surface, borderRadius:"24px 24px 0 0", border:`1px solid ${C.border}`, paddingBottom:24, maxHeight:"72vh", display:"flex", flexDirection:"column", boxShadow:`0 -16px 60px ${C.shadowM}` }} onClick={e => e.stopPropagation()}>
             <div style={{ padding:"14px 18px 12px", borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
               <div style={{ display:"flex", alignItems:"center", gap:10 }}><div style={{ width:38, height:38, borderRadius:"50%", background:`linear-gradient(135deg, ${C.accent}, ${C.accentL})`, display:"flex", alignItems:"center", justifyContent:"center", color:"#fff" }}><BotIcon/></div><div><div style={{ color:C.text, fontWeight:800, fontSize:15 }}>Asistente Muvit</div><div style={{ color:C.green, fontSize:11, display:"flex", alignItems:"center", gap:4, fontWeight:600 }}><span style={{ width:6, height:6, borderRadius:"50%", background:C.green, display:"inline-block" }}/>En línea</div></div></div>
@@ -1184,6 +1320,8 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
   const [tenantVerified, setTenantVerified] = useState(false);
   const [tenantProfile, setTenantProfile] = useState<TenantProfile>(DEFAULT_TENANT_PROFILE);
   const [globalRequests, setGlobalRequests] = useState<any[]>(loadStoredRequests);
+  const [visitChats, setVisitChats] = useState<Record<string, VisitChatMessage[]>>(loadStoredVisitChats);
+  const [openChatRequest, setOpenChatRequest] = useState<any>(null);
   const [listings, setListings] = useState<PropertyListing[]>(INITIAL_LISTINGS);
   const [selectedCityId, setSelectedCityId] = useState(loadSelectedCity);
   const [showCityPicker, setShowCityPicker] = useState(false);
@@ -1191,6 +1329,10 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
   useEffect(() => {
     localStorage.setItem(GLOBAL_REQUESTS_STORAGE_KEY, JSON.stringify(globalRequests));
   }, [globalRequests]);
+
+  useEffect(() => {
+    localStorage.setItem(VISIT_CHATS_STORAGE_KEY, JSON.stringify(visitChats));
+  }, [visitChats]);
 
   useEffect(() => {
     localStorage.setItem(SELECTED_CITY_STORAGE_KEY, selectedCityId);
@@ -1257,9 +1399,45 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
 
   const closeCredits = useCallback(() => setTab(tabBeforeCredits), [tabBeforeCredits]);
 
+  const openVisitChat = useCallback((request: any) => {
+    setOpenChatRequest(request);
+  }, []);
+
+  const sendVisitChatMessage = useCallback((requestId: number, from: VisitChatSender, messageText: string) => {
+    const cleanText = messageText.trim();
+    if (!cleanText) return;
+    setVisitChats(prev => {
+      const key = String(requestId);
+      const nextMessage: VisitChatMessage = {
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        reqId: requestId,
+        from,
+        text: cleanText,
+        createdAt: new Date().toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit" }),
+      };
+      return { ...prev, [key]: [...(prev[key] ?? []), nextMessage] };
+    });
+  }, []);
+
   const scheduleRequest = useCallback((id: number, time: string) => {
     const slotRef = findSlotByLabel(calendarDays, time);
+    const request = globalRequests.find((req: any) => req.id === id);
     setGlobalRequests(prev => prev.map(req => req.id === id ? { ...req, status: "scheduled", time, scheduledSlot: slotRef } : req));
+    setVisitChats(prev => {
+      const key = String(id);
+      if (prev[key]?.length) return prev;
+      const tenantName = request?.tenantName ? ` ${request.tenantName}` : "";
+      return {
+        ...prev,
+        [key]: [{
+          id: Date.now(),
+          reqId: id,
+          from: "owner",
+          text: `¡Hola${tenantName}! Confirmo la visita para ${time}. Coordinemos por acá cualquier detalle.`,
+          createdAt: "Ahora",
+        }],
+      };
+    });
     if (slotRef) {
       setCalendarDays(prev => prev.map(day =>
         day.dateKey === slotRef.dateKey
@@ -1267,7 +1445,7 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
           : day
       ));
     }
-  }, [calendarDays]);
+  }, [calendarDays, globalRequests]);
 
   const addListing = useCallback((prop: PropertyListing) => {
     setListings(prev => [prop, ...prev]);
@@ -1290,11 +1468,14 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
     if (!window.confirm("¿Reiniciar la demo?\n\nSe borrarán solicitudes, visitas, boosts y todos los cambios. Volvés al estado inicial.")) return;
     localStorage.removeItem(GLOBAL_REQUESTS_STORAGE_KEY);
     localStorage.removeItem(SELECTED_CITY_STORAGE_KEY);
+    localStorage.removeItem(VISIT_CHATS_STORAGE_KEY);
     setRole("inquilino");
     setTab("swipe");
     setTenantVerified(false);
     setTenantProfile(DEFAULT_TENANT_PROFILE);
     setGlobalRequests([]);
+    setVisitChats({});
+    setOpenChatRequest(null);
     setListings(INITIAL_LISTINGS);
     setSelectedCityId(CITIES[0].id);
     setCalendarDays(JSON.parse(JSON.stringify(INITIAL_CALENDAR_DAYS)));
@@ -1319,7 +1500,7 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
   ];
 
   return (
-    <div style={{ minHeight:"100vh", display:"flex", justifyContent:"center", alignItems:"center", background:"#EDE9E3", fontFamily:"'Montserrat', sans-serif" }}>
+    <div style={{ minHeight:"100dvh", display:"flex", justifyContent:"center", alignItems:"center", background:"#EDE9E3", fontFamily:"'Montserrat', sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; }
@@ -1332,7 +1513,7 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
         @keyframes toastIn { from { opacity:0; transform:translateY(-12px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
 
-      <div style={{ width:"100%", maxWidth:440, height:"100vh", maxHeight:860, background:C.bg, display:"flex", flexDirection:"column", overflow:"hidden", border:`1px solid ${C.border}`, boxShadow:`0 20px 80px rgba(100,60,20,0.12)`, position:"relative", colorScheme:"light" }}>
+      <div style={{ width:"100%", maxWidth:440, height:"100dvh", maxHeight:860, background:C.bg, display:"flex", flexDirection:"column", overflow:"hidden", border:`1px solid ${C.border}`, boxShadow:`0 20px 80px rgba(100,60,20,0.12)`, position:"relative", colorScheme:"light" }}>
         <div style={{ padding:"14px 20px 11px", background:C.surface, borderBottom:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0, boxShadow:`0 1px 12px rgba(60,40,20,0.06)`, position:"relative", minHeight:52 }}>
           <div style={{ display:"flex", alignItems:"center", gap:10, flex:1, minWidth:0 }}>
             <div style={{ width:34, height:34, borderRadius:11, background:`linear-gradient(135deg,${C.accent},${C.accentL})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, boxShadow:`0 3px 10px rgba(232,87,42,0.3)`, flexShrink:0 }}>🏠</div>
@@ -1342,14 +1523,6 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
                 {tab === "creditos" ? "Créditos" : (navItems.find(i => i.id === tab)?.label || "Mi cuenta")}
               </div>
             </div>
-          </div>
-          <div style={{ position:"absolute", left:"50%", top:"50%", transform:"translate(-50%, -50%)", zIndex:1 }}>
-            {role === "dueño" && tab !== "creditos" && (
-              <button onClick={openCredits} style={{ background:`rgba(59,130,246,0.1)`, border:`1.5px solid rgba(59,130,246,0.25)`, borderRadius:20, padding:"4px 11px", color:C.blue, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>Créditos: {ownerCredits}</button>
-            )}
-            {role === "dueño" && tab === "creditos" && (
-              <button onClick={closeCredits} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:20, padding:"4px 11px", color:C.muted, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>← Volver</button>
-            )}
           </div>
           <div style={{ flex:1, display:"flex", justifyContent:"flex-end", alignItems:"center", gap:6, minWidth:0 }}>
             <button onClick={() => setShowCityPicker(true)} style={{ background:`rgba(232,87,42,0.08)`, border:`1.5px solid rgba(232,87,42,0.2)`, borderRadius:20, padding:"4px 11px", color:C.accent, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:4 }}>
@@ -1363,19 +1536,19 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
         </div>
         {showCityPicker && <CityPickerModal selectedCityId={selectedCityId} onSelect={setSelectedCityId} onClose={() => setShowCityPicker(false)} />}
 
-        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative" }}>
+        <div style={{ flex:1, display:"flex", flexDirection:"column", overflow:"hidden", position:"relative", minHeight:0 }}>
           {toastMessage && <InterestToast message={toastMessage} />}
           {tab==="swipe" && role==="inquilino" && <SwipeScreen key={selectedCityId} listings={cityListings} boostedPropertyIds={boostedProperties} onOpen={setSelectedProperty} externalSwipe={swipeFromDetail} onExternalSwipeDone={clearExternalSwipe} onSendInterest={sendInterest} onToast={showToast} />}
-          {tab==="visitas" && role==="inquilino" && <VisitasScreen globalRequests={cityRequests} onScheduleRequest={scheduleRequest} availableSlots={availableSlots} listings={cityListings} onOpenProperty={setSelectedProperty} />}
+          {tab==="visitas" && role==="inquilino" && <VisitasScreen globalRequests={cityRequests} onScheduleRequest={scheduleRequest} availableSlots={availableSlots} listings={cityListings} onOpenProperty={setSelectedProperty} onOpenChat={openVisitChat} />}
           {tab==="propiedades" && role==="dueño" && <OwnerPropertiesScreen properties={ownerListings} onAddProperty={addListing} onUpdateProperty={updateListing} cityId={selectedCityId} boostedPropertyIds={boostedProperties} onBoostProperty={boostProperty} ownerCredits={ownerCredits} />}
           {tab==="creditos" && role==="dueño" && <CreditsScreen credits={ownerCredits} onBack={closeCredits} />}
-          {tab==="solicitudes" && role==="dueño" && <SolicitudesScreen globalRequests={globalRequests} onUpdateRequestStatus={updateRequestStatus} ownerCredits={ownerCredits} />}
-          {tab==="calendario" && role==="dueño" && <CalendarioScreen calendarDays={calendarDays} onToggleSlot={toggleCalendarSlot} globalRequests={globalRequests} />}
-          {tab==="perfil" && <ProfileScreen role={role} setRole={setRole} setTab={setTab} isVerified={tenantVerified} setIsVerified={setTenantVerified} tenantProfile={tenantProfile} onUpdateTenantProfile={setTenantProfile} ownerPropertyCount={ownerListings.length} onResetDemo={resetDemo} />}
+          {tab==="solicitudes" && role==="dueño" && <SolicitudesScreen globalRequests={globalRequests} onUpdateRequestStatus={updateRequestStatus} ownerCredits={ownerCredits} onOpenChat={openVisitChat} />}
+          {tab==="calendario" && role==="dueño" && <CalendarioScreen calendarDays={calendarDays} onToggleSlot={toggleCalendarSlot} globalRequests={globalRequests} onOpenChat={openVisitChat} />}
+          {tab==="perfil" && <ProfileScreen role={role} setRole={setRole} setTab={setTab} isVerified={tenantVerified} setIsVerified={setTenantVerified} tenantProfile={tenantProfile} onUpdateTenantProfile={setTenantProfile} ownerPropertyCount={ownerListings.length} ownerCredits={ownerCredits} onOpenCredits={openCredits} onResetDemo={resetDemo} />}
           {selectedProperty && <PropertyDetail property={selectedProperty} onClose={() => setSelectedProperty(null)} onSwipe={handleSwipeFromDetail} showActions={tab === "swipe"} />}
         </div>
 
-        <div style={{ display:"flex", background:C.surface, borderTop:`1px solid ${C.border}`, flexShrink:0, boxShadow:`0 -1px 12px rgba(60,40,20,0.06)` }}>
+        <div style={{ display:"flex", background:C.surface, borderTop:`1px solid ${C.border}`, flexShrink:0, boxShadow:`0 -1px 12px rgba(60,40,20,0.06)`, position:"relative", zIndex:60, paddingBottom:"env(safe-area-inset-bottom)" }}>
           {navItems.map(item => (
             <button key={item.id} onClick={() => setTab(item.id)} style={{ flex:1, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:4, padding:"11px 0", background:"none", border:"none", cursor:"pointer", color: tab===item.id && tab !== "creditos" ? C.accent : C.faint, transition:"color 0.2s", position:"relative" }}>
               {tab===item.id && tab !== "creditos" && <div style={{ position:"absolute", top:0, left:"50%", transform:"translateX(-50%)", width:30, height:2.5, background:`linear-gradient(90deg,${C.accent},${C.accentL})`, borderRadius:"0 0 3px 3px" }}/>}
@@ -1384,6 +1557,16 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
             </button>
           ))}
         </div>
+
+        {openChatRequest && (
+          <VisitChatModal
+            request={openChatRequest}
+            role={role}
+            messages={visitChats[String(openChatRequest.id)] ?? []}
+            onSend={sendVisitChatMessage}
+            onClose={() => setOpenChatRequest(null)}
+          />
+        )}
       </div>
     </div>
   );
