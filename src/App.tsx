@@ -13,53 +13,21 @@ const PropertyImage3 = () => (
 const SCENE_COMPONENTS = [PropertyImage1, PropertyImage2, PropertyImage3];
 const PROPERTY_IMAGE_COUNT = 10;
 
-function publicAssetPath(path: string): string {
-  if (
-    path.startsWith("http://") ||
-    path.startsWith("https://") ||
-    path.startsWith("data:") ||
-    path.startsWith("blob:")
-  ) {
-    return path;
-  }
-
-  return `${import.meta.env.BASE_URL}${path.replace(/^\/+/, "")}`;
-}
-
-function propertyImageBasePath(property: Pick<PropertyListing, "id" | "image">): string {
+function propertyImagePath(property: Pick<PropertyListing, "id" | "image">): string {
   if (property.image) return property.image;
   const index = ((Math.abs(property.id) - 1) % PROPERTY_IMAGE_COUNT) + 1;
-  return `properties/prop-${index}`;
-}
-
-function propertyImageCandidates(property: Pick<PropertyListing, "id" | "image">): string[] {
-  const basePath = propertyImageBasePath(property);
-
-  if (property.image) return [publicAssetPath(basePath)];
-
-  const index = ((Math.abs(property.id) - 1) % PROPERTY_IMAGE_COUNT) + 1;
-  const fileBases = [`properties/prop-${index}`, `properties/Prop-${index}`];
-  const extensions = ["png", "jpg", "jpeg", "webp", "PNG", "JPG", "JPEG", "WEBP"];
-
-  return fileBases.flatMap(fileBase => extensions.map(ext => publicAssetPath(`${fileBase}.${ext}`)));
+  return `/properties/prop-${index}.png`;
 }
 
 function PropertyPhoto({ property }: { property: PropertyListing }) {
-  const [imageIndex, setImageIndex] = useState(0);
+  const [useFallback, setUseFallback] = useState(false);
   const Scene = SCENE_COMPONENTS[property.sceneIndex % SCENE_COMPONENTS.length];
-  const candidates = propertyImageCandidates(property);
-
-  useEffect(() => {
-    setImageIndex(0);
-  }, [property.id, property.image]);
-
-  if (imageIndex >= candidates.length) return <Scene />;
-
+  if (useFallback) return <Scene />;
   return (
     <img
-      src={candidates[imageIndex]}
+      src={propertyImagePath(property)}
       alt={property.title}
-      onError={() => setImageIndex(current => current + 1)}
+      onError={() => setUseFallback(true)}
       style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
     />
   );
@@ -516,7 +484,7 @@ function SwipeCard({ property, onSwipe, onOpen, isTop, index, isBoosted }: any) 
 
   return (
     <>
-      <div onMouseDown={isTop ? (e) => { e.preventDefault(); handleStart(e.clientX, e.clientY); } : undefined} onMouseMove={isTop ? (e) => handleMove(e.clientX, e.clientY) : undefined} onMouseUp={isTop ? handleEnd : undefined} onMouseLeave={isTop && dragging ? handleEnd : undefined} onTouchStart={isTop ? (e) => { const t = e.touches[0]; handleStart(t.clientX, t.clientY); } : undefined} onTouchMove={isTop ? (e) => { const t = e.touches[0]; handleMove(t.clientX, t.clientY); } : undefined} onTouchEnd={isTop ? handleEnd : undefined} style={{ position: "absolute", top: 0, left: 0, width: "100%", cursor: isTop ? (dragging ? "grabbing" : "grab") : "default", transform: `translateX(${offset.x}px) translateY(${ty}px) rotate(${rot}deg) scale(${scale})`, transition: dragging ? "none" : "transform 0.38s cubic-bezier(0.34,1.56,0.64,1)", zIndex: 10 - index, userSelect: "none", touchAction: "none" }}>
+      <div onMouseDown={isTop ? (e) => { e.preventDefault(); handleStart(e.clientX, e.clientY); } : undefined} onMouseMove={isTop ? (e) => handleMove(e.clientX, e.clientY) : undefined} onMouseUp={isTop ? handleEnd : undefined} onMouseLeave={isTop && dragging ? handleEnd : undefined} onTouchStart={isTop ? (e) => { const t = e.touches[0]; handleStart(t.clientX, t.clientY); } : undefined} onTouchMove={isTop ? (e) => { const t = e.touches[0]; handleMove(t.clientX, t.clientY); } : undefined} onTouchEnd={isTop ? handleEnd : undefined} style={{ position: "absolute", width: "100%", cursor: isTop ? (dragging ? "grabbing" : "grab") : "default", transform: `translateX(${offset.x}px) translateY(${ty}px) rotate(${rot}deg) scale(${scale})`, transition: dragging ? "none" : "transform 0.38s cubic-bezier(0.34,1.56,0.64,1)", zIndex: 10 - index, userSelect: "none", touchAction: "none" }}>
         <div style={{ borderRadius: 24, overflow: "hidden", background: C.card, boxShadow: isTop ? `0 8px 40px ${C.shadowM}, 0 2px 8px ${C.shadow}` : `0 4px 20px ${C.shadow}`, border: `1px solid ${C.border}` }}>
           <div style={{ position: "relative", height: 300, overflow: "hidden" }}>
             <PropertyPhoto property={property} />
@@ -626,14 +594,14 @@ function SwipeScreen({ listings, boostedPropertyIds, onOpen, externalSwipe, onEx
 
   return (
     <div style={{ flex:1, display:"flex", flexDirection:"column", padding:16, background:C.bg }}>
-      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, marginBottom:14, position:"relative", zIndex:40, flexShrink:0, background:C.bg }}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
         <div style={{ display:"flex", gap:8 }}>
           <Pill color={C.accent} bg="rgba(232,87,42,0.08)" border="rgba(232,87,42,0.2)">{listings.length - cards.length} vistos</Pill>
           <Pill color={C.green} bg="rgba(46,204,138,0.08)" border="rgba(46,204,138,0.25)">❤️ {matchesCount} solicitudes</Pill>
         </div>
         <span style={{ color:C.faint, fontSize:13, fontWeight:600 }}>{cards.length} restantes</span>
       </div>
-      <div style={{ position:"relative", flex:1, display:"flex", alignItems:"flex-start", zIndex:1 }}>
+      <div style={{ position:"relative", flex:1, display:"flex", alignItems:"center" }}>
         {cards.slice(0, 3).map((p: PropertyListing, i: number) => <SwipeCard key={p.id} property={p} isBoosted={boostedPropertyIds?.includes(p.id)} onSwipe={handleSwipe} onOpen={onOpen} isTop={i===0} index={i}/>)}
       </div>
       <div style={{ display:"flex", justifyContent:"center", alignItems:"center", gap:18, padding:"20px 0 6px", position:"relative", zIndex:20 }}>
@@ -1058,7 +1026,7 @@ function CalendarioScreen({ calendarDays, onToggleSlot, globalRequests }: any) {
 }
 
 // ─── MI PERFIL ─────────────────────────────────────────────
-function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenantProfile, onUpdateTenantProfile, ownerPropertyCount, ownerCredits, onOpenCredits, onResetDemo }: any) {
+function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenantProfile, onUpdateTenantProfile, ownerPropertyCount, onResetDemo }: any) {
   const handleRoleToggle = (newRole: string) => { setRole(newRole); setTab(newRole === 'inquilino' ? 'swipe' : 'propiedades'); };
   const set = (key: keyof TenantProfile, value: string | boolean) => onUpdateTenantProfile({ ...tenantProfile, [key]: value });
 
@@ -1118,20 +1086,7 @@ function ProfileScreen({ role, setRole, setTab, isVerified, setIsVerified, tenan
             <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Plan Actual</span><span style={{ background:`rgba(232,87,42,0.1)`, color:C.accent, padding:"4px 10px", borderRadius:8, fontWeight:800, fontSize:12 }}>PREMIUM PRO</span></div>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Propiedades Activas</span><span style={{ color:C.muted, fontWeight:700 }}>{ownerPropertyCount} Publicaciones</span></div>
-              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", borderBottom:`1px solid ${C.border}`, paddingBottom:12 }}><span style={{ color:C.text, fontWeight:600 }}>Matches este mes</span><span style={{ color:C.green, fontWeight:800 }}>+45 Leads</span></div>
-              <button
-                onClick={onOpenCredits}
-                style={{ width:"100%", display:"flex", justifyContent:"space-between", alignItems:"center", padding:"13px 14px", background:`rgba(59,130,246,0.08)`, border:`1.5px solid rgba(59,130,246,0.22)`, borderRadius:12, color:C.text, cursor:"pointer", textAlign:"left" }}
-              >
-                <span style={{ display:"flex", flexDirection:"column", gap:3 }}>
-                  <span style={{ fontSize:14, fontWeight:800 }}>Créditos disponibles</span>
-                  <span style={{ fontSize:12, color:C.muted, fontWeight:600 }}>Tocar para comprar más</span>
-                </span>
-                <span style={{ display:"flex", alignItems:"center", gap:8, color:C.blue, fontWeight:900 }}>
-                  <span style={{ fontSize:18 }}>{ownerCredits}</span>
-                  <span style={{ fontSize:16 }}>›</span>
-                </span>
-              </button>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}><span style={{ color:C.text, fontWeight:600 }}>Matches este mes</span><span style={{ color:C.green, fontWeight:800 }}>+45 Leads</span></div>
             </div>
           </div>
         </>
@@ -1388,6 +1343,14 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
               </div>
             </div>
           </div>
+          <div style={{ position:"absolute", left:"50%", top:"50%", transform:"translate(-50%, -50%)", zIndex:1 }}>
+            {role === "dueño" && tab !== "creditos" && (
+              <button onClick={openCredits} style={{ background:`rgba(59,130,246,0.1)`, border:`1.5px solid rgba(59,130,246,0.25)`, borderRadius:20, padding:"4px 11px", color:C.blue, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>Créditos: {ownerCredits}</button>
+            )}
+            {role === "dueño" && tab === "creditos" && (
+              <button onClick={closeCredits} style={{ background:C.bg, border:`1px solid ${C.border}`, borderRadius:20, padding:"4px 11px", color:C.muted, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap" }}>← Volver</button>
+            )}
+          </div>
           <div style={{ flex:1, display:"flex", justifyContent:"flex-end", alignItems:"center", gap:6, minWidth:0 }}>
             <button onClick={() => setShowCityPicker(true)} style={{ background:`rgba(232,87,42,0.08)`, border:`1.5px solid rgba(232,87,42,0.2)`, borderRadius:20, padding:"4px 11px", color:C.accent, fontSize:12, fontWeight:700, cursor:"pointer", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:4 }}>
               {selectedCity.name} {selectedCity.flag}
@@ -1408,7 +1371,7 @@ function MuvitApp({ onLogout }: { onLogout: () => void }) {
           {tab==="creditos" && role==="dueño" && <CreditsScreen credits={ownerCredits} onBack={closeCredits} />}
           {tab==="solicitudes" && role==="dueño" && <SolicitudesScreen globalRequests={globalRequests} onUpdateRequestStatus={updateRequestStatus} ownerCredits={ownerCredits} />}
           {tab==="calendario" && role==="dueño" && <CalendarioScreen calendarDays={calendarDays} onToggleSlot={toggleCalendarSlot} globalRequests={globalRequests} />}
-          {tab==="perfil" && <ProfileScreen role={role} setRole={setRole} setTab={setTab} isVerified={tenantVerified} setIsVerified={setTenantVerified} tenantProfile={tenantProfile} onUpdateTenantProfile={setTenantProfile} ownerPropertyCount={ownerListings.length} ownerCredits={ownerCredits} onOpenCredits={openCredits} onResetDemo={resetDemo} />}
+          {tab==="perfil" && <ProfileScreen role={role} setRole={setRole} setTab={setTab} isVerified={tenantVerified} setIsVerified={setTenantVerified} tenantProfile={tenantProfile} onUpdateTenantProfile={setTenantProfile} ownerPropertyCount={ownerListings.length} onResetDemo={resetDemo} />}
           {selectedProperty && <PropertyDetail property={selectedProperty} onClose={() => setSelectedProperty(null)} onSwipe={handleSwipeFromDetail} showActions={tab === "swipe"} />}
         </div>
 
